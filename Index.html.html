@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgroSense - Monitoreo IoT + Satelital de Lotes</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js for precision AgTech correlation graphs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Google Fonts Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            agrogreen: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              500: '#22c55e',
+              600: '#16a34a',
+              700: '#15803d',
+              800: '#166534',
+              900: '#14532d',
+            },
+            soil: {
+              600: '#854d0e',
+              700: '#713f12',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom subtle pulse and map transitions */
+    .pulse-ring {
+      animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+      70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    }
+    .lot-polygon {
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+    .lot-polygon:hover {
+      filter: brightness(1.15) drop-shadow(0 4px 6px rgba(0,0,0,0.15));
+    }
+    /* Smooth custom scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans antialiased min-h-screen flex flex-col">
+
+  <!-- TOP HEADER / AGTECH TOOLBAR -->
+  <header class="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-md">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex flex-col md:flex-row md:items-center justify-between py-3 gap-3">
+        
+        <!-- Brand & Field Selector -->
+        <div class="flex items-center gap-4 flex-wrap">
+          <div class="flex items-center gap-2">
+            <div class="h-9 w-9 rounded-lg bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shadow-lg shadow-emerald-900/40">
+              <i data-lucide="satellite" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <span class="text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
+                AgroSense <span class="text-emerald-400 text-xs px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 font-mono">IoT + SAT</span>
+              </span>
+              <p class="text-[11px] text-slate-400">Entre Ríos &middot; Campaña 2025/2026</p>
+            </div>
+          </div>
+
+          <div class="h-6 w-px bg-slate-700 hidden sm:block"></div>
+
+          <!-- Lote / Campo Selector -->
+          <div class="flex items-center gap-2 bg-slate-800/90 border border-slate-700 rounded-lg px-3 py-1.5 hover:border-slate-600 transition">
+            <i data-lucide="map-pin" class="w-4 h-4 text-emerald-400"></i>
+            <select id="loteSelector" onchange="cambiarLote(this.value)" class="bg-transparent text-sm text-slate-200 focus:outline-none cursor-pointer font-medium">
+              <option value="aurora_4b" class="bg-slate-900 text-white">Est. La Aurora - Lote 4B (145 ha &middot; Soja 1°)</option>
+              <option value="aurora_norte" class="bg-slate-900 text-white">Est. La Aurora - Lote Norte (85 ha &middot; Maíz tardío)</option>
+              <option value="espinillo_2" class="bg-slate-900 text-white">El Espinillo - Bajo 2 (110 ha &middot; Girasol)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Telemetry & Action Buttons -->
+        <div class="flex items-center gap-2 flex-wrap justify-between md:justify-end text-xs">
+          <!-- Status pill: IoT Connection -->
+          <div class="flex items-center gap-2 px-2.5 py-1.5 bg-slate-800 border border-slate-700/80 rounded-md">
+            <span class="relative flex h-2 w-2">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span class="text-slate-300 font-medium">Telemetría LoRaWAN: <span class="text-emerald-400 font-mono">ONLINE</span></span>
+          </div>
+
+          <!-- Satellite Pass Badge -->
+          <div class="hidden lg:flex items-center gap-2 px-2.5 py-1.5 bg-slate-800 border border-slate-700/80 rounded-md text-slate-300">
+            <i data-lucide="clock" class="w-3.5 h-3.5 text-sky-400"></i>
+            <span>Sentinel-2: <span class="text-slate-200">Ayer 11:24 hs</span> (0% nubes)</span>
+          </div>
+
+          <!-- Report Trigger -->
+          <button onclick="abrirModalReporte()" class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-3 py-1.5 rounded-lg transition shadow-sm hover:shadow-emerald-700/30">
+            <i data-lucide="share-2" class="w-3.5 h-3.5"></i>
+            <span>Reporte Agronómico</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full flex-grow space-y-6">
+
+    <!-- KPI METRICS GRID -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      
+      <!-- KPI 1: NDVI Satelital -->
+      <div class="bg-white rounded-xl p-4 border border-slate-200/90 shadow-sm relative overflow-hidden flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+            <i data-lucide="activity" class="w-3.5 h-3.5 text-emerald-600"></i> NDVI Promedio Lote
+          </span>
+          <span class="text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+            <i data-lucide="trending-up" class="w-3 h-3"></i> +0.06 vs sem. pasada
+          </span>
+        </div>
+        <div class="flex items-baseline gap-2">
+          <span id="kpi-ndvi-val" class="text-3xl font-extrabold text-slate-900 font-mono">0.76</span>
+          <span class="text-xs font-medium text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded">Vigor Óptimo</span>
+        </div>
+        <p class="text-xs text-slate-500 mt-2">Cierre de entresurco homogéneo. Resolución 10m/px.</p>
+        <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-yellow-400 via-emerald-500 to-green-700"></div>
+      </div>
+
+      <!-- KPI 2: Humedad de Suelo IoT -->
+      <div class="bg-white rounded-xl p-4 border border-slate-200/90 shadow-sm relative overflow-hidden flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+            <i data-lucide="droplets" class="w-3.5 h-3.5 text-blue-500"></i> Humedad Suelo (0-40cm)
+          </span>
+          <span class="text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+            3 Sondas activas
+          </span>
+        </div>
+        <div class="flex items-baseline gap-2">
+          <span id="kpi-moist-val" class="text-3xl font-extrabold text-slate-900 font-mono">26.8%</span>
+          <span class="text-xs font-medium text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded">Capacidad de Campo</span>
+        </div>
+        <div class="w-full bg-slate-100 rounded-full h-2 mt-2">
+          <div class="bg-blue-500 h-2 rounded-full" style="width: 68%"></div>
+        </div>
+        <div class="flex justify-between text-[10px] text-slate-400 mt-1 font-mono">
+          <span>PMP (12%)</span>
+          <span>CC (28%)</span>
+          <span>Sat (38%)</span>
+        </div>
+        <div class="absolute bottom-0 left-0 right-0 h-1 bg-blue-500"></div>
+      </div>
+
+      <!-- KPI 3: Estación Clima in-situ -->
+      <div class="bg-white rounded-xl p-4 border border-slate-200/90 shadow-sm relative overflow-hidden flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+            <i data-lucide="cloud-sun" class="w-3.5 h-3.5 text-amber-500"></i> Estación Meteorológica
+          </span>
+          <span class="text-[10px] font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">Batería 96%</span>
+        </div>
+        <div class="flex items-baseline gap-2">
+          <span class="text-3xl font-extrabold text-slate-900 font-mono">24.2°C</span>
+          <span class="text-xs text-slate-500">RH 62%</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 mt-2 text-xs text-slate-600 pt-1 border-t border-slate-100">
+          <span class="flex items-center gap-1"><i data-lucide="wind" class="w-3 h-3 text-slate-400"></i> Viento: 9 km/h NE</span>
+          <span class="flex items-center gap-1"><i data-lucide="thermometer-snowflake" class="w-3 h-3 text-slate-400"></i> Rocío: 16.5°C</span>
+        </div>
+        <div class="absolute bottom-0 left-0 right-0 h-1 bg-amber-500"></div>
+      </div>
+
+      <!-- KPI 4: Ventana de Aplicación / Estrés -->
+      <div class="bg-white rounded-xl p-4 border border-slate-200/90 shadow-sm relative overflow-hidden flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+            <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-emerald-600"></i> Estado Sanitario / Estrés
+          </span>
+          <span class="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">Bajo Riesgo</span>
+        </div>
+        <div class="flex items-baseline gap-2">
+          <span class="text-2xl font-bold text-slate-800">Ventana Óptima</span>
+        </div>
+        <p class="text-xs text-slate-600 mt-1">
+          Condiciones adecuadas para pulverización aérea o terrestre hasta las 11:30 hs.
+        </p>
+        <div class="mt-2 text-[11px] text-emerald-700 font-medium flex items-center gap-1">
+          <i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Delta T: 3.2 (Zona verde)
+        </div>
+        <div class="absolute bottom-0 left-0 right-0 h-1 bg-emerald-600"></div>
+      </div>
+
+    </section>
+
+    <!-- INTERACTIVE LOT MAP + TELEMETRY CONTROLS -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- Interactive Lot Map Container (8 Cols) -->
+      <div class="lg:col-span-8 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
+        
+        <!-- Map Header Controls -->
+        <div class="p-3.5 border-b border-slate-200 bg-slate-50/70 flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-sm text-slate-800 flex items-center gap-1.5">
+              <i data-lucide="layers" class="w-4 h-4 text-emerald-600"></i> Visualizador Multicapa de Lote
+            </span>
+            <span class="text-xs text-slate-500 hidden sm:inline">&middot; Polígono geo-referenciado 145 ha</span>
+          </div>
+
+          <!-- Layer Toggles -->
+          <div class="flex items-center gap-1 bg-slate-200/80 p-0.5 rounded-lg text-xs font-medium">
+            <button id="btnLayerNDVI" onclick="cambiarCapa('ndvi')" class="px-2.5 py-1 rounded-md bg-white text-slate-800 shadow-sm transition">
+              NDVI Satelital
+            </button>
+            <button id="btnLayerMoisture" onclick="cambiarCapa('moisture')" class="px-2.5 py-1 rounded-md text-slate-600 hover:text-slate-900 transition">
+              Humedad IoT
+            </button>
+            <button id="btnLayerRGB" onclick="cambiarCapa('rgb')" class="px-2.5 py-1 rounded-md text-slate-600 hover:text-slate-900 transition">
+              Color Natural (RGB)
+            </button>
+          </div>
+        </div>
+
+        <!-- The Interactive Map Viewport -->
+        <div class="relative bg-slate-900 overflow-hidden flex items-center justify-center min-h-[380px] p-4 select-none">
+          
+          <!-- Background Grid Lines to represent GPS coordinates -->
+          <div class="absolute inset-0 opacity-15 pointer-events-none" style="background-image: linear-gradient(#94a3b8 1px, transparent 1px), linear-gradient(to right, #94a3b8 1px, transparent 1px); background-size: 40px 40px;"></div>
+          
+          <!-- Coordinate labels on corners -->
+          <div class="absolute top-2 left-2 text-[10px] font-mono text-slate-400 bg-slate-950/70 px-2 py-0.5 rounded backdrop-blur border border-slate-800">
+            LAT: 31°44'28" S | LON: 60°31'12" W
+          </div>
+          <div class="absolute bottom-2 left-2 text-[10px] font-mono text-slate-400 bg-slate-950/70 px-2 py-0.5 rounded backdrop-blur border border-slate-800 flex items-center gap-2">
+            <span>Escala: 1:5.000</span>
+            <span>&middot;</span>
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span> LoRaWAN 915 MHz</span>
+          </div>
+
+          <!-- SVG Field Polygon representation with differentiated management zones -->
+          <svg id="lotSvg" viewBox="0 0 650 380" class="w-full h-full max-h-[420px] drop-shadow-2xl">
+            <defs>
+              <!-- NDVI Gradients representing natural crop vigor variation in lote pampeano -->
+              <linearGradient id="ndviZoneA" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#15803d" />
+                <stop offset="50%" stop-color="#16a34a" />
+                <stop offset="100%" stop-color="#22c55e" />
+              </linearGradient>
+              <linearGradient id="ndviZoneB" x1="0%" y1="100%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#eab308" />
+                <stop offset="60%" stop-color="#84cc16" />
+                <stop offset="100%" stop-color="#16a34a" />
+              </linearGradient>
+              <linearGradient id="ndviZoneC" x1="100%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#166534" />
+                <stop offset="100%" stop-color="#15803d" />
+              </linearGradient>
+              <!-- Moisture overlay gradients -->
+              <linearGradient id="moistZoneA" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#0284c7" />
+                <stop offset="100%" stop-color="#38bdf8" />
+              </linearGradient>
+              <linearGradient id="moistZoneB" x1="0%" y1="100%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#f59e0b" />
+                <stop offset="100%" stop-color="#0ea5e9" />
+              </linearGradient>
+            </defs>
+
+            <!-- Surrounding fields outline (context) -->
+            <polygon points="20,40 160,20 180,140 10,120" fill="#1e293b" opacity="0.4" stroke="#475569" stroke-dasharray="3 3"/>
+            <text x="50" y="80" fill="#64748b" font-size="11" font-weight="bold">Lote Vecino (Trigo rastrojo)</text>
+            
+            <polygon points="460,20 620,50 630,190 470,170" fill="#1e293b" opacity="0.4" stroke="#475569" stroke-dasharray="3 3"/>
+            <text x="500" y="100" fill="#64748b" font-size="11" font-weight="bold">Lote 4A (Maíz)</text>
+
+            <!-- MAIN LOT 4B: Zone 1 (Loma - Vigor medio/alto) -->
+            <polygon id="polyZone1" points="160,50 360,40 370,220 170,230" 
+                     class="lot-polygon" fill="url(#ndviZoneA)" stroke="#f8fafc" stroke-width="1.5"
+                     onclick="mostrarZonaInfo('Zona Loma Norte (62 ha)', 'NDVI 0.79', 'Humedad 24.5%', 'Excelente densidad de canopeo.')">
+            </polygon>
+            
+            <!-- MAIN LOT 4B: Zone 2 (Media loma / Bajo con manchón salino/déficit - Vigor variable) -->
+            <polygon id="polyZone2" points="360,40 480,70 470,260 370,220" 
+                     class="lot-polygon" fill="url(#ndviZoneB)" stroke="#f8fafc" stroke-width="1.5"
+                     onclick="mostrarZonaInfo('Zona Bajo Este (38 ha)', 'NDVI 0.63', 'Humedad 29.1%', 'Leve retención de agua en microrrelieve. NDVI en recuperación.')">
+            </polygon>
+
+            <!-- MAIN LOT 4B: Zone 3 (Plano central - Vigor óptimo) -->
+            <polygon id="polyZone3" points="170,230 470,260 450,340 150,330" 
+                     class="lot-polygon" fill="url(#ndviZoneC)" stroke="#f8fafc" stroke-width="1.5"
+                     onclick="mostrarZonaInfo('Zona Sur Planicie (45 ha)', 'NDVI 0.81', 'Humedad 27.2%', 'Desarrollo vegetativo pico. Sin estrés detectable.')">
+            </polygon>
+
+            <!-- Cadastral boundary stroke around full Lote 4B -->
+            <polyline points="160,50 360,40 480,70 470,260 450,340 150,330 170,230 160,50" 
+                      fill="none" stroke="#22c55e" stroke-width="2.5" stroke-dasharray="6 3" />
+
+            <!-- Contours / Elevational isocurves -->
+            <path d="M 180,120 Q 300,140 460,110" fill="none" stroke="#ffffff" stroke-width="0.8" opacity="0.3" stroke-dasharray="2 2" />
+            <path d="M 170,200 Q 310,210 465,190" fill="none" stroke="#ffffff" stroke-width="0.8" opacity="0.3" stroke-dasharray="2 2" />
+            
+            <!-- Labels on field -->
+            <text x="230" y="130" fill="#ffffff" font-size="13" font-weight="bold" letter-spacing="1" opacity="0.9">LOTE 4B &middot; SOJA 1°</text>
+            <text x="245" y="148" fill="#e2e8f0" font-size="10" opacity="0.8">145 Hectáreas</text>
+
+            <!-- IOT PROBE S1 (North Probe) -->
+            <g class="cursor-pointer" onclick="abrirSondaInfo('Sonda IoT S-01 (Loma)', 22.4, 25.1, 28.0, 1.2, 98, 'Normal')">
+              <circle cx="260" cy="90" r="16" fill="rgba(34, 197, 94, 0.3)" class="pulse-ring" />
+              <circle cx="260" cy="90" r="7" fill="#22c55e" stroke="#ffffff" stroke-width="2" />
+              <rect x="272" y="80" width="70" height="20" rx="4" fill="#0f172a" fill-opacity="0.85" stroke="#334155" />
+              <text x="277" y="94" fill="#ffffff" font-size="9.5" font-family="Inter" font-weight="600">S-01: 24.5%</text>
+            </g>
+
+            <!-- IOT PROBE S2 (East Probe - Alert Zone) -->
+            <g class="cursor-pointer" onclick="abrirSondaInfo('Sonda IoT S-02 (Bajo Este)', 18.2, 19.5, 27.8, 1.6, 92, 'Alerta Sequedad Superficial')">
+              <circle cx="415" cy="150" r="16" fill="rgba(245, 158, 11, 0.4)" class="pulse-ring" />
+              <circle cx="415" cy="150" r="7" fill="#f59e0b" stroke="#ffffff" stroke-width="2" />
+              <rect x="365" y="165" width="76" height="20" rx="4" fill="#0f172a" fill-opacity="0.85" stroke="#ea580c" />
+              <text x="370" y="179" fill="#fde047" font-size="9.5" font-family="Inter" font-weight="700">S-02: 19.5% ⚠️</text>
+            </g>
+
+            <!-- IOT PROBE S3 (South Probe) -->
+            <g class="cursor-pointer" onclick="abrirSondaInfo('Sonda IoT S-03 (Planicie Sur)', 26.5, 27.4, 29.8, 1.1, 95, 'Óptimo')">
+              <circle cx="290" cy="285" r="16" fill="rgba(34, 197, 94, 0.3)" class="pulse-ring" />
+              <circle cx="290" cy="285" r="7" fill="#22c55e" stroke="#ffffff" stroke-width="2" />
+              <rect x="302" y="275" width="70" height="20" rx="4" fill="#0f172a" fill-opacity="0.85" stroke="#334155" />
+              <text x="307" y="289" fill="#ffffff" font-size="9.5" font-family="Inter" font-weight="600">S-03: 27.2%</text>
+            </g>
+
+            <!-- Weather Station icon / position -->
+            <g class="cursor-pointer" onclick="alert('Estación Meteorológica AgroSense EMS-40\nBatería: 96%\nViento: 9 km/h NE\nPresión: 1013.8 hPa\nPrecipitación acumulada 7d: 14.5 mm')">
+              <circle cx="190" cy="70" r="9" fill="#0284c7" stroke="#ffffff" stroke-width="2" />
+              <text x="187" y="73" fill="#ffffff" font-size="9" font-weight="bold">⛅</text>
+              <rect x="135" y="45" width="50" height="16" rx="3" fill="#0f172a" fill-opacity="0.85" />
+              <text x="139" y="56" fill="#7dd3fc" font-size="8.5" font-weight="bold">METEO-01</text>
+            </g>
+          </svg>
+
+          <!-- Floating Map Legend -->
+          <div class="absolute bottom-3 right-3 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-lg p-2.5 text-white text-xs shadow-lg">
+            <span class="block text-[11px] font-semibold text-slate-300 mb-1" id="legendTitle">Escala NDVI (Vigor)</span>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] font-mono text-slate-400">0.2</span>
+              <div id="legendGradient" class="h-2.5 w-32 rounded bg-gradient-to-r from-red-600 via-amber-400 via-lime-500 to-green-700"></div>
+              <span class="text-[10px] font-mono text-slate-400">0.9</span>
+            </div>
+            <div class="flex justify-between text-[9px] text-slate-400 mt-1">
+              <span>Suelo desnudo</span>
+              <span>Estrés</span>
+              <span>Canopeo lleno</span>
+            </div>
+          </div>
+
+          <!-- Quick interactive Zone Tooltip Banner -->
+          <div id="zoneTooltip" class="absolute top-3 right-3 bg-slate-900/95 border border-emerald-500/50 rounded-lg px-3 py-2 text-white text-xs shadow-xl hidden max-w-xs transition">
+            <div class="flex items-center justify-between gap-2 border-b border-slate-700 pb-1 mb-1">
+              <strong id="ztTitle" class="text-emerald-400 font-bold">Zona Seleccionada</strong>
+              <button onclick="cerrarZonaInfo()" class="text-slate-400 hover:text-white">&times;</button>
+            </div>
+            <div class="flex gap-3 text-slate-300 font-mono text-[11px]">
+              <span id="ztNdvi">NDVI: 0.78</span>
+              <span id="ztMoist">Humedad: 26%</span>
+            </div>
+            <p id="ztDesc" class="text-slate-400 text-[10px] mt-1 leading-snug">Descripción del sector agronómico.</p>
+          </div>
+
+        </div>
+
+        <!-- Satellite Timeline & Pass Slider -->
+        <div class="p-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+          <div class="flex items-center gap-2 text-slate-600">
+            <i data-lucide="calendar" class="w-4 h-4 text-slate-500"></i>
+            <span class="font-medium">Línea temporal Sentinel-2:</span>
+          </div>
+
+          <div class="flex items-center gap-2 flex-grow max-w-md w-full">
+            <span class="text-[11px] text-slate-500 font-mono">24 Oct</span>
+            <input type="range" min="1" max="4" value="4" step="1" id="timelineSlider" oninput="cambiarPasoSatelital(this.value)" class="w-full accent-emerald-600 cursor-pointer">
+            <span class="text-[11px] text-emerald-700 font-bold font-mono">Ayer</span>
+          </div>
+
+          <div class="text-[11px] font-mono text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded">
+            Paso: <strong class="text-slate-800" id="currentPassDate">09 Nov 2026</strong>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Telemetry Detail & Soil Probe Depth Profile (4 Cols) -->
+      <div class="lg:col-span-4 space-y-4">
+        
+        <!-- Sonda IoT Active Inspect Card -->
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+          <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div>
+              <span class="text-xs uppercase font-bold tracking-wider text-slate-500">Telemetría Sonda IoT</span>
+              <h3 id="probeCardTitle" class="text-base font-bold text-slate-800">Sonda S-01 (Loma)</h3>
+            </div>
+            <span id="probeStatusBadge" class="px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-100 text-emerald-800">Normal</span>
+          </div>
+
+          <!-- Soil Moisture per Depth Layer -->
+          <div class="mt-4 space-y-3">
+            <div class="text-xs font-semibold text-slate-700 flex justify-between">
+              <span>Humedad por Estrato de Suelo:</span>
+              <span class="text-slate-400 font-mono text-[11px]">Volumétrica (%)</span>
+            </div>
+
+            <!-- Depth 1: 10 cm -->
+            <div>
+              <div class="flex justify-between text-xs mb-1 font-mono">
+                <span class="text-slate-600">Estrato Superficial (10 cm)</span>
+                <span id="depth10Val" class="font-bold text-slate-800">22.4%</span>
+              </div>
+              <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                <div id="depth10Bar" class="bg-sky-500 h-2.5 rounded-full" style="width: 58%"></div>
+              </div>
+            </div>
+
+            <!-- Depth 2: 30 cm (Root zone) -->
+            <div>
+              <div class="flex justify-between text-xs mb-1 font-mono">
+                <span class="text-slate-700 font-semibold flex items-center gap-1">
+                  Zona Radicular Activa (30 cm) <i data-lucide="target" class="w-3 h-3 text-emerald-600"></i>
+                </span>
+                <span id="depth30Val" class="font-bold text-emerald-700">25.1%</span>
+              </div>
+              <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                <div id="depth30Bar" class="bg-emerald-500 h-2.5 rounded-full" style="width: 65%"></div>
+              </div>
+            </div>
+
+            <!-- Depth 3: 60 cm (Subsoil reservoir) -->
+            <div>
+              <div class="flex justify-between text-xs mb-1 font-mono">
+                <span class="text-slate-600">Reserva Profunda (60 cm)</span>
+                <span id="depth60Val" class="font-bold text-slate-800">28.0%</span>
+              </div>
+              <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                <div id="depth60Bar" class="bg-blue-600 h-2.5 rounded-full" style="width: 72%"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Secondary Probe Telemetry: EC and Temperature -->
+          <div class="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-slate-100 text-xs">
+            <div class="bg-slate-50 p-2 rounded-lg border border-slate-100">
+              <span class="text-slate-500 block text-[10px]">Cond. Eléctrica (Salinidad)</span>
+              <span id="probeEcVal" class="font-mono font-bold text-slate-800 text-sm">1.2 dS/m</span>
+              <span class="text-[10px] text-emerald-700 font-medium">Bajo riesgo salino</span>
+            </div>
+            <div class="bg-slate-50 p-2 rounded-lg border border-slate-100">
+              <span class="text-slate-500 block text-[10px]">Temp. Suelo (20 cm)</span>
+              <span class="font-mono font-bold text-slate-800 text-sm">21.8 °C</span>
+              <span class="text-[10px] text-slate-500 font-medium">Actividad biológica OK</span>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between mt-3 text-[11px] text-slate-400 font-mono">
+            <span>Última muestra: Hace 6 min</span>
+            <span id="probeBatVal" class="text-emerald-700 font-semibold">🔋 Batería 98%</span>
+          </div>
+
+        </div>
+
+        <!-- Satellite Indices Quick Card -->
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+          <h4 class="text-xs uppercase font-bold tracking-wider text-slate-500 mb-3">Índices Multiespectrales (Sentinel-2)</h4>
+          <div class="space-y-2.5 text-xs">
+            <div class="flex items-center justify-between">
+              <span class="font-medium text-slate-700">NDRE (Clorofila / Nitrógeno)</span>
+              <span class="font-mono font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">0.42 (Adecuado)</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="font-medium text-slate-700">NDWI (Contenido de Agua Foliar)</span>
+              <span class="font-mono font-bold text-sky-600 bg-sky-50 px-2 py-0.5 rounded">+0.28 (Sin estrés)</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="font-medium text-slate-700">MSAVI2 (Suelo descubierto ajustado)</span>
+              <span class="font-mono font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">0.69 (Canopeo 90%)</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ANALYTICAL CORRELATION GRAPH + AGRONOMIC ALERTS -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- Historical Correlation Chart (8 Cols) -->
+      <div class="lg:col-span-8 bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col justify-between">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+          <div>
+            <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+              <i data-lucide="line-chart" class="w-4 h-4 text-emerald-600"></i>
+              Correlación IoT vs Satélite (Últimos 30 días)
+            </h3>
+            <p class="text-xs text-slate-500">Cruce de Humedad de Suelo in situ con evolución de vigor vegetativo (NDVI).</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-1 rounded">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block"></span> NDVI Satelital
+            </span>
+            <span class="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-1 rounded">
+              <span class="w-2.5 h-2.5 rounded-full bg-sky-500 inline-block"></span> Humedad Suelo IoT (%)
+            </span>
+          </div>
+        </div>
+
+        <!-- Canvas Chart Container -->
+        <div class="relative w-full h-[260px]">
+          <canvas id="correlationChart"></canvas>
+        </div>
+
+        <div class="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+          <span class="flex items-center gap-1">
+            <i data-lucide="info" class="w-3.5 h-3.5 text-slate-400"></i>
+            Las lluvias de 22mm del día 28 de Oct reactivaron fuertemente la pendiente de biomasa radicular.
+          </span>
+          <span class="font-mono text-emerald-700 font-semibold">R² = 0.88 (Alta correlación)</span>
+        </div>
+      </div>
+
+      <!-- Real-time Agronomic Alerts & Actionable Insights (4 Cols) -->
+      <div class="lg:col-span-4 bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+            <i data-lucide="bell" class="w-4 h-4 text-amber-500"></i>
+            Alertas & Recomendaciones
+          </h3>
+          <span class="text-xs bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full">2 Activas</span>
+        </div>
+
+        <div class="space-y-3 flex-grow overflow-y-auto max-h-[300px] pr-1">
+          
+          <!-- Alert 1: Soil Moisture Drop Alert -->
+          <div id="alertCard1" class="p-3 rounded-lg border border-amber-200 bg-amber-50/70 relative transition">
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-center gap-1.5 text-xs font-bold text-amber-800">
+                <i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-amber-600 flex-shrink-0"></i>
+                Sector Bajo Este (S-02)
+              </div>
+              <button onclick="resolverAlerta('alertCard1')" title="Marcar como leída" class="text-slate-400 hover:text-slate-700 text-xs font-bold">&times;</button>
+            </div>
+            <p class="text-xs text-slate-700 mt-1">
+              Caída acelerada de humedad en 30cm (-4.2% en 48h). Posible compactación local o inicio de estrés en borde de lote.
+            </p>
+            <div class="mt-2 flex items-center justify-between">
+              <span class="text-[10px] text-amber-700 font-mono">Prioridad Media</span>
+              <button onclick="alert('Se agendó inspección con técnico para el Lote 4B Este.')" class="text-[11px] font-semibold text-amber-900 underline hover:text-amber-700">Verificar a campo &rarr;</button>
+            </div>
+          </div>
+
+          <!-- Alert 2: Spraying Window Opportunity -->
+          <div id="alertCard2" class="p-3 rounded-lg border border-emerald-200 bg-emerald-50/70 relative transition">
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-center gap-1.5 text-xs font-bold text-emerald-800">
+                <i data-lucide="sparkles" class="w-3.5 h-3.5 text-emerald-600 flex-shrink-0"></i>
+                Ventana de Pulverización Favorable
+              </div>
+              <button onclick="resolverAlerta('alertCard2')" title="Marcar como leída" class="text-slate-400 hover:text-slate-700 text-xs font-bold">&times;</button>
+            </div>
+            <p class="text-xs text-slate-700 mt-1">
+              Jueves 06:30 a 10:30 hs: Viento constante &lt; 11 km/h, Delta T de 3.5, RH &gt; 60%. Óptimo para fungicida preventivo.
+            </p>
+            <div class="mt-2 flex items-center justify-between">
+              <span class="text-[10px] text-emerald-700 font-mono">Recomendación IA</span>
+              <button onclick="alert('Alerta compartida con el equipo de maquinistas.')" class="text-[11px] font-semibold text-emerald-900 underline hover:text-emerald-700">Avisar a contratista</button>
+            </div>
+          </div>
+
+          <!-- Inactive Alert Example -->
+          <div class="p-2.5 rounded-lg border border-slate-100 bg-slate-50 text-slate-400 text-xs flex items-center justify-between">
+            <span class="flex items-center gap-1"><i data-lucide="check" class="w-3.5 h-3.5 text-slate-400"></i> Calibración sensores LoRa</span>
+            <span class="text-[10px] font-mono">Completada ayer</span>
+          </div>
+
+        </div>
+
+        <div class="mt-3 pt-2 border-t border-slate-100">
+          <button onclick="alert('Configuración de umbrales SMS y WhatsApp habilitada para los técnicos del establecimiento.')" class="w-full text-center text-xs text-slate-500 hover:text-slate-800 font-medium py-1">
+            Configurar Umbrales de Alarma &rarr;
+          </button>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- MODAL: REPORTE AGRONÓMICO AUTOMÁTICO (WHATSAPP / PDF) -->
+  <div id="modalReporte" class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 relative animate-in fade-in zoom-in-95 duration-200">
+      
+      <!-- Close button -->
+      <button onclick="cerrarModalReporte()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1 rounded-full hover:bg-slate-100 transition">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+
+      <!-- Modal Header -->
+      <div class="flex items-center gap-3 border-b border-slate-100 pb-4">
+        <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+          <i data-lucide="file-text" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Reporte Ejecutivo de Lote</h2>
+          <p class="text-xs text-slate-500">Generado automáticamente para el productor / asesor técnico</p>
+        </div>
+      </div>
+
+      <!-- Report Body Preview -->
+      <div id="reporteContenido" class="mt-4 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-3 font-sans">
+        
+        <div class="flex justify-between items-center border-b border-slate-200 pb-2">
+          <div>
+            <strong class="text-slate-900 text-sm block">Establecimiento La Aurora - Lote 4B</strong>
+            <span class="text-slate-500 text-[11px]">Cultivo: Soja de 1° (145 ha) &middot; Entre Ríos</span>
+          </div>
+          <span class="text-[11px] font-mono text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded font-semibold">11 Nov 2026</span>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 py-1 text-center">
+          <div class="p-2 bg-white rounded border border-slate-200">
+            <span class="text-[10px] text-slate-500 block uppercase">NDVI Promedio</span>
+            <span class="font-bold text-slate-800 text-sm font-mono">0.76 (Óptimo)</span>
+          </div>
+          <div class="p-2 bg-white rounded border border-slate-200">
+            <span class="text-[10px] text-slate-500 block uppercase">Humedad Suelo</span>
+            <span class="font-bold text-blue-700 text-sm font-mono">26.8% (CC)</span>
+          </div>
+          <div class="p-2 bg-white rounded border border-slate-200">
+            <span class="text-[10px] text-slate-500 block uppercase">Precipitac. 7d</span>
+            <span class="font-bold text-slate-800 text-sm font-mono">14.5 mm</span>
+          </div>
+        </div>
+
+        <div class="text-slate-700 space-y-1.5 pt-1">
+          <p><strong>Diagnóstico AgroSense:</strong> El lote se encuentra en óptimo crecimiento con cierre foliar homogéneo en el 85% de la superficie. Se detectó una variabilidad localizada en el bajo Este (S-02) que requiere monitoreo de compactación.</p>
+          <p><strong>Plan de Acción Recomendado:</strong></p>
+          <ul class="list-disc list-inside space-y-0.5 text-slate-600 pl-1">
+            <li>Aprovechar ventana climática del jueves para aplicación fungicida.</li>
+            <li>No se requiere fertilización complementaria de nitrógeno/azufre en este estadio.</li>
+            <li>Próximo pase satelital de alta resolución: Viernes 11:22 hs.</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="mt-5 flex flex-col sm:flex-row items-center justify-end gap-2.5">
+        <button onclick="copiarReporteTexto()" class="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition">
+          <i data-lucide="copy" class="w-4 h-4"></i>
+          <span id="btnCopyText">Copiar Resumen</span>
+        </button>
+        <button onclick="enviarPorWhatsApp()" class="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-semibold text-white shadow-sm transition">
+          <i data-lucide="send" class="w-4 h-4"></i>
+          <span>Enviar por WhatsApp</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer class="bg-white border-t border-slate-200 py-4 mt-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
+      <div class="flex items-center gap-2">
+        <span class="font-semibold text-slate-700">AgroSense Precision Tech</span>
+        <span>&middot;</span>
+        <span>Fusión IoT + Imágenes Satelitales Sentinel-2 / Planet</span>
+      </div>
+      <div>
+        <span>Desarrollado para el Agro Argentino &middot; Entre Ríos</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- APPLICATION LOGIC & CHART SCRIPT -->
+  <script>
+    // Initialize Lucide Icons
+    lucide.createIcons();
+
+    // Chart.js Correlation Graph Instance
+    let correlationChartInstance = null;
+
+    function initCorrelationChart() {
+      const ctx = document.getElementById('correlationChart').getContext('2d');
+      
+      const labels = ['12 Oct', '15 Oct', '18 Oct', '21 Oct', '24 Oct', '27 Oct', '30 Oct', '02 Nov', '05 Nov', '08 Nov', 'Ayer'];
+      const dataNDVI = [0.55, 0.58, 0.61, 0.64, 0.66, 0.67, 0.70, 0.72, 0.73, 0.75, 0.76];
+      const dataMoisture = [21.5, 20.2, 19.1, 18.0, 31.0, 29.5, 28.2, 27.5, 26.9, 26.2, 26.8]; // Note rainfall spike around 24-27 Oct
+
+      correlationChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'NDVI Satelital (Vigor)',
+              data: dataNDVI,
+              borderColor: '#16a34a',
+              backgroundColor: 'rgba(22, 163, 74, 0.08)',
+              fill: true,
+              yAxisID: 'yNDVI',
+              tension: 0.35,
+              borderWidth: 2.5,
+              pointBackgroundColor: '#15803d',
+              pointRadius: 3,
+            },
+            {
+              label: 'Humedad Suelo IoT 0-40cm (%)',
+              data: dataMoisture,
+              borderColor: '#0284c7',
+              backgroundColor: 'transparent',
+              yAxisID: 'yMoist',
+              tension: 0.35,
+              borderWidth: 2,
+              borderDash: [4, 4],
+              pointBackgroundColor: '#0284c7',
+              pointRadius: 3,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false,
+          },
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              backgroundColor: '#0f172a',
+              titleColor: '#f8fafc',
+              bodyColor: '#cbd5e1',
+              padding: 10,
+              boxPadding: 4,
+              usePointStyle: true
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { font: { size: 10, family: 'Inter' }, color: '#64748b' }
+            },
+            yNDVI: {
+              type: 'linear',
+              position: 'left',
+              min: 0.4,
+              max: 1.0,
+              grid: { color: '#f1f5f9' },
+              ticks: { font: { size: 10, family: 'JetBrains Mono' }, color: '#16a34a' },
+              title: { display: true, text: 'Índice NDVI', font: { size: 10, weight: 'bold' }, color: '#16a34a' }
+            },
+            yMoist: {
+              type: 'linear',
+              position: 'right',
+              min: 10,
+              max: 40,
+              grid: { drawOnChartArea: false },
+              ticks: { font: { size: 10, family: 'JetBrains Mono' }, color: '#0284c7' },
+              title: { display: true, text: 'Humedad (%)', font: { size: 10, weight: 'bold' }, color: '#0284c7' }
+            }
+          }
+        }
+      });
+    }
+
+    // Interactive Map Layer Switching
+    function cambiarCapa(capa) {
+      const btnNDVI = document.getElementById('btnLayerNDVI');
+      const btnMoist = document.getElementById('btnLayerMoisture');
+      const btnRGB = document.getElementById('btnLayerRGB');
+      const legendTitle = document.getElementById('legendTitle');
+      const legendGradient = document.getElementById('legendGradient');
+      
+      const p1 = document.getElementById('polyZone1');
+      const p2 = document.getElementById('polyZone2');
+      const p3 = document.getElementById('polyZone3');
+
+      // Reset button classes
+      [btnNDVI, btnMoist, btnRGB].forEach(b => {
+        b.className = 'px-2.5 py-1 rounded-md text-slate-600 hover:text-slate-900 transition';
+      });
+
+      if (capa === 'ndvi') {
+        btnNDVI.className = 'px-2.5 py-1 rounded-md bg-white text-slate-800 shadow-sm font-semibold transition';
+        p1.setAttribute('fill', 'url(#ndviZoneA)');
+        p2.setAttribute('fill', 'url(#ndviZoneB)');
+        p3.setAttribute('fill', 'url(#ndviZoneC)');
+        legendTitle.innerText = 'Escala NDVI (Vigor Vegetativo)';
+        legendGradient.className = 'h-2.5 w-32 rounded bg-gradient-to-r from-red-600 via-amber-400 via-lime-500 to-green-700';
+      } else if (capa === 'moisture') {
+        btnMoist.className = 'px-2.5 py-1 rounded-md bg-white text-slate-800 shadow-sm font-semibold transition';
+        p1.setAttribute('fill', 'url(#moistZoneA)');
+        p2.setAttribute('fill', 'url(#moistZoneB)');
+        p3.setAttribute('fill', 'url(#moistZoneA)');
+        legendTitle.innerText = 'Humedad Estimada en Suelo (%)';
+        legendGradient.className = 'h-2.5 w-32 rounded bg-gradient-to-r from-amber-600 via-sky-400 to-blue-700';
+      } else if (capa === 'rgb') {
+        btnRGB.className = 'px-2.5 py-1 rounded-md bg-white text-slate-800 shadow-sm font-semibold transition';
+        p1.setAttribute('fill', '#2d4f24');
+        p2.setAttribute('fill', '#475e29');
+        p3.setAttribute('fill', '#274b1e');
+        legendTitle.innerText = 'Reflectancia Visible (RGB)';
+        legendGradient.className = 'h-2.5 w-32 rounded bg-gradient-to-r from-[#594d36] to-[#1e3f16]';
+      }
+    }
+
+    // Timeline Slider Simulation
+    function cambiarPasoSatelital(val) {
+      const dates = {
+        '1': '24 Oct 2026 (NDVI 0.66)',
+        '2': '30 Oct 2026 (NDVI 0.70)',
+        '3': '05 Nov 2026 (NDVI 0.73)',
+        '4': '09 Nov 2026 (NDVI 0.76)'
+      };
+      document.getElementById('currentPassDate').innerText = dates[val];
+    }
+
+    // Inspect IoT Probe Function
+    function abrirSondaInfo(nombre, d10, d30, d60, ec, bat, status) {
+      document.getElementById('probeCardTitle').innerText = nombre;
+      document.getElementById('probeStatusBadge').innerText = status;
+      if (status.includes('Alerta')) {
+        document.getElementById('probeStatusBadge').className = 'px-2 py-0.5 rounded text-[11px] font-medium bg-amber-100 text-amber-800';
+      } else {
+        document.getElementById('probeStatusBadge').className = 'px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-100 text-emerald-800';
+      }
+
+      document.getElementById('depth10Val').innerText = d10 + '%';
+      document.getElementById('depth10Bar').style.width = (d10 * 2.5) + '%';
+
+      document.getElementById('depth30Val').innerText = d30 + '%';
+      document.getElementById('depth30Bar').style.width = (d30 * 2.5) + '%';
+
+      document.getElementById('depth60Val').innerText = d60 + '%';
+      document.getElementById('depth60Bar').style.width = (d60 * 2.5) + '%';
+
+      document.getElementById('probeEcVal').innerText = ec + ' dS/m';
+      document.getElementById('probeBatVal').innerText = '🔋 Batería ' + bat + '%';
+    }
+
+    // Interactive Zone Info Banner on Click
+    function mostrarZonaInfo(titulo, ndvi, hum, desc) {
+      const tooltip = document.getElementById('zoneTooltip');
+      document.getElementById('ztTitle').innerText = titulo;
+      document.getElementById('ztNdvi').innerText = ndvi;
+      document.getElementById('ztMoist').innerText = hum;
+      document.getElementById('ztDesc').innerText = desc;
+      tooltip.classList.remove('hidden');
+    }
+
+    function cerrarZonaInfo() {
+      document.getElementById('zoneTooltip').classList.add('hidden');
+    }
+
+    // Alert Dismissal
+    function resolverAlerta(id) {
+      const el = document.getElementById(id);
+      if (el) {
+        el.style.opacity = '0';
+        el.style.transform = 'scale(0.95)';
+        setTimeout(() => el.remove(), 250);
+      }
+    }
+
+    // Selector for different Fields / Lotes
+    function cambiarLote(loteKey) {
+      if (loteKey === 'aurora_norte') {
+        document.getElementById('kpi-ndvi-val').innerText = '0.68';
+        document.getElementById('kpi-moist-val').innerText = '24.1%';
+        document.getElementById('probeCardTitle').innerText = 'Sonda S-04 (Maíz Tardío)';
+        document.getElementById('depth30Val').innerText = '22.8%';
+      } else if (loteKey === 'espinillo_2') {
+        document.getElementById('kpi-ndvi-val').innerText = '0.71';
+        document.getElementById('kpi-moist-val').innerText = '28.9%';
+        document.getElementById('probeCardTitle').innerText = 'Sonda S-01 (Bajo Girasol)';
+        document.getElementById('depth30Val').innerText = '27.4%';
+      } else {
+        document.getElementById('kpi-ndvi-val').innerText = '0.76';
+        document.getElementById('kpi-moist-val').innerText = '26.8%';
+        document.getElementById('probeCardTitle').innerText = 'Sonda S-01 (Loma)';
+        document.getElementById('depth30Val').innerText = '25.1%';
+      }
+    }
+
+    // Report Modal Handlers
+    function abrirModalReporte() {
+      document.getElementById('modalReporte').classList.remove('hidden');
+    }
+
+    function cerrarModalReporte() {
+      document.getElementById('modalReporte').classList.add('hidden');
+    }
+
+    function copiarReporteTexto() {
+      const texto = `*Reporte AgroSense IoT + Satelital*\nEstablecimiento: La Aurora - Lote 4B (145 ha - Soja 1°)\nNDVI Promedio: 0.76 (Óptimo)\nHumedad Suelo IoT (0-40cm): 26.8% (Capacidad de campo)\nVentana de pulverización: Favorable hasta las 11:30 hs.\nDiagnóstico: Lote con óptimo canopeo; control visual en bajo Este por menor retención.`;
+      
+      const el = document.createElement('textarea');
+      el.value = texto;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+
+      const btnText = document.getElementById('btnCopyText');
+      btnText.innerText = '¡Copiado!';
+      setTimeout(() => btnText.innerText = 'Copiar Resumen', 2000);
+    }
+
+    function enviarPorWhatsApp() {
+      const texto = encodeURIComponent(`*Reporte AgroSense IoT + Satelital*\nEstablecimiento: La Aurora - Lote 4B (Soja 1°)\nNDVI: 0.76 (Óptimo) | Humedad: 26.8%\nVentana de aplicación: Abierta hoy jueves con viento < 11 km/h.`);
+      window.open(`https://api.whatsapp.com/send?text=${texto}`, '_blank');
+    }
+
+    // Initialize application on window load
+    window.onload = function() {
+      initCorrelationChart();
+    };
+  </script>
+</body>
+</html>
